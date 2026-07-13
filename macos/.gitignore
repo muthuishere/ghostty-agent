@@ -1,0 +1,6 @@
+.DS_Store
+/*.xcframework
+build/
+xcuserdata/
+DerivedData/
+macos/
