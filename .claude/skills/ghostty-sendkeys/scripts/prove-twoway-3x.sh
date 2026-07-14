@@ -4,11 +4,14 @@
 # `zig build`, then prove-twoway.sh must pass 3 times CONSECUTIVELY, each run
 # driving a real claude session to answer "42". Records every run.
 #
-# Usage: scripts/prove-twoway-3x.sh
+# Usage: .claude/skills/ghostty-sendkeys/scripts/prove-twoway-3x.sh
 # Exit:  0 iff all 3 runs are green.
 
 set -uo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Repo root: this script lives inside the skill; resolve the real top-level.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$HERE" && git rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$ROOT" ] || ROOT="$(cd "$HERE/../../../.." && pwd)"
 ZIG="${ZIG:-/opt/homebrew/opt/zig@0.15/bin/zig}"
 command -v "$ZIG" >/dev/null 2>&1 || ZIG="zig"
 
@@ -25,7 +28,7 @@ pass=0
 for run in 1 2 3; do
   echo; echo "############ RUN $run/3 ############"
   # SKIP_BUILD=1: use the exact cold-built binary for all three runs.
-  if SKIP_BUILD=1 bash "$ROOT/scripts/prove-twoway.sh"; then
+  if SKIP_BUILD=1 bash "$HERE/prove-twoway.sh"; then
     echo ">>> RUN $run: GREEN"; pass=$((pass + 1))
   else
     echo ">>> RUN $run: RED (stopping)"; break

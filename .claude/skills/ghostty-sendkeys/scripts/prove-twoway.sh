@@ -20,14 +20,17 @@
 # match -- "42" is NOT in the prompt, so a match can only be the model's output,
 # proving Enter submitted in the TUI.
 #
-# Usage: scripts/prove-twoway.sh          (builds first, then one run)
-#        SKIP_BUILD=1 scripts/prove-twoway.sh   (skip the build; used by the 3x
+# Usage: .claude/skills/ghostty-sendkeys/scripts/prove-twoway.sh          (builds first, then one run)
+#        SKIP_BUILD=1 .claude/skills/ghostty-sendkeys/scripts/prove-twoway.sh   (skip the build; used by the 3x
 #                                                 wrapper after one cold build)
 # Exit:  0 = PASS, non-zero = FAIL.
 
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# Repo root: this script lives inside the skill (.claude/skills/ghostty-sendkeys/
+# scripts/), so resolve the actual repo top-level rather than assuming <repo>/scripts/.
+ROOT="$(cd "$(dirname "$0")" && git rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$ROOT" ] || ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
 SK="$ROOT/sendkeys.js"
 CLAUDE="${CLAUDE_BIN:-$(command -v claude || echo /Users/muthuishere/.local/bin/claude)}"
 
