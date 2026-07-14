@@ -260,6 +260,23 @@ prefer them over blind sleeps.
    `scripts/prove-twoway.sh` for the full, proven flow (trust dialog → boot →
    prompt → waitfor "42").
 
+3. **Launch with `--window-save-state=never` or reads will hit the wrong
+   surface (the #1 flake).** macOS window state-restoration reopens a *second*
+   window in the same fork process. That restored surface *also* inherits
+   `GHOSTTY_SENDKEYS_DIR` and starts its **own** watcher, so two watchers race
+   to drain the one spool — a `read`/`waitfor` gets answered by whichever
+   surface grabs the request first. Symptom: reads flip between the booted-claude
+   surface and a stale one still on the trust dialog, and boot `waitfor` "settles"
+   with no match ("claude never booted") even though claude *did* boot in the
+   other window. Fix — one flag, exactly one watched surface:
+
+   ```sh
+   "$GH" --window-save-state=never --command="..."
+   ```
+
+   Verify you're clean: `read` the surface ~5× in a row; every read must return
+   the *same* surface. If they flip, a second surface is racing you.
+
 Note: bare `type`/`key` only **stage** (v1); `send` and all v2 verbs publish
 immediately. `screenshot` is macOS-only and needs Screen Recording permission
 (else it falls back to full-screen / may be blank) — for a terminal, `read` /
