@@ -71,3 +71,17 @@ test('pollResponse returns null after the deadline when no file appears', () => 
   assert.equal(got, null);
   assert.ok(elapsed >= 140, `expected to wait ~150ms, waited ${elapsed}ms`);
 });
+
+test('pollResponse tolerates an empty/partial file (no crash), keeps polling', () => {
+  // Regression for CEO-VERIFY-FAIL-1: a stale binary or a partial read left an
+  // empty response file and the poller crashed with "Unexpected end of JSON
+  // input". It must now treat it as not-ready and never throw.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sk-partial-'));
+  const file = path.join(dir, 'p1.response.json');
+  fs.writeFileSync(file, ''); // empty
+  const got = sk.pollResponse(dir, 'p1', 120);
+  assert.equal(got, null, 'empty file must not resolve');
+  assert.equal(fs.existsSync(file), true, 'must not delete an unparseable file');
+  fs.writeFileSync(file, '{"id":"p1","ok":tr'); // truncated JSON
+  assert.equal(sk.pollResponse(dir, 'p1', 120), null, 'partial JSON must not throw');
+});

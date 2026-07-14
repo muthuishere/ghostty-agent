@@ -120,14 +120,29 @@ function pollResponse(respDir, id, deadlineMs) {
   const file = path.join(respDir, `${id}.response.json`);
   const start = Date.now();
   for (;;) {
+    let raw = null;
     try {
-      const raw = fs.readFileSync(file, 'utf8');
-      try {
-        fs.unlinkSync(file);
-      } catch (_) {}
-      return JSON.parse(raw);
+      raw = fs.readFileSync(file, 'utf8');
     } catch (err) {
       if (err.code !== 'ENOENT') throw err;
+    }
+    if (raw !== null) {
+      // The watcher publishes responses atomically (temp + rename), so a
+      // complete file should always parse. Be defensive anyway: an empty or
+      // partial read (or a stray file) must NOT crash the poller -- treat it
+      // as "not ready yet", keep polling, and never delete an unparseable file.
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (_) {
+        parsed = undefined;
+      }
+      if (parsed !== undefined) {
+        try {
+          fs.unlinkSync(file);
+        } catch (_) {}
+        return parsed;
+      }
     }
     if (Date.now() - start >= deadlineMs) return null;
     sleepMs(25);
