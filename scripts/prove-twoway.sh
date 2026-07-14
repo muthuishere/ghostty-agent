@@ -89,10 +89,19 @@ launch_and_verify() {
   local attempt probe
   for attempt in 1 2 3; do
     echo "--- launch attempt $attempt ---"
+    # --window-save-state=never is REQUIRED for reliability (CEO-VERIFY-FAIL-1
+    # root cause): macOS window state-restoration otherwise reopens a SECOND
+    # surface in this same process, which ALSO inherits GHOSTTY_SENDKEYS_DIR and
+    # starts its own watcher. Two watchers then race to drain the one spool, so a
+    # READ/WAITFOR is answered by whichever surface grabs the request first --
+    # sometimes the booted-claude surface, sometimes a stale restored one still
+    # on the trust dialog. That is the "claude never booted" (settle, no match)
+    # flake. Disabling save-state leaves exactly ONE watched surface.
     GHOSTTY_SENDKEYS_DIR="$SPOOL" \
     GHOSTTY_SENDKEYS_RESP_DIR="$RESP" \
     GHOSTTY_LOG=info \
-      "$GH" --command="/bin/bash --noprofile --norc -c 'cd \"$CLAUDE_CWD\" && exec \"$CLAUDE\" --dangerously-skip-permissions'" >"$LOG" 2>&1 &
+      "$GH" --window-save-state=never \
+      --command="/bin/bash --noprofile --norc -c 'cd \"$CLAUDE_CWD\" && exec \"$CLAUDE\" --dangerously-skip-permissions'" >"$LOG" 2>&1 &
     GPID=$!
     echo "ghostty pid: $GPID -- probing for a live watcher..."
     # Probe: a READ must come back within ~8s if the watcher is running.

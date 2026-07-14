@@ -1,20 +1,168 @@
 ############ COLD BUILD (/opt/homebrew/opt/zig@0.15/bin/zig build) ############
 built: /Users/muthuishere/muthu/gitworkspace/ghostty-agent/zig-out/Ghostty.app/Contents/MacOS/ghostty
--rwxr-xr-x@ 1 muthuishere  staff  142643408 14 Jul 13:51 /Users/muthuishere/muthu/gitworkspace/ghostty-agent/zig-out/Ghostty.app/Contents/MacOS/ghostty
+-rwxr-xr-x@ 1 muthuishere  staff  142643408 14 Jul 22:08 /Users/muthuishere/muthu/gitworkspace/ghostty-agent/zig-out/Ghostty.app/Contents/MacOS/ghostty
 
 ############ RUN 1/3 ############
 === prove-twoway.sh ===
 ghostty:  /Users/muthuishere/muthu/gitworkspace/ghostty-agent/zig-out/Ghostty.app/Contents/MacOS/ghostty
 claude:   /Users/muthuishere/.local/bin/claude
-workdir:  /tmp/prove-twoway.XXfaNB
+workdir:  /tmp/prove-twoway.KUe9Tw
 
-ghostty pid: 38756
+--- launch attempt 1 ---
+ghostty pid: 38443 -- probing for a live watcher...
+watcher is live (probe answered).
 
 --- [1] wait for the trust dialog (if any) ---
-timed out waiting for response id=1784017316881-38757-bh1vzu
->>> no trust dialog (already trusted)
+>>> trust dialog present -> KEY:enter to accept
 
 --- [2] wait for claude boot (bypass permissions banner) ---
-timed out waiting for response id=1784017339958-38865-4ud36x
   attempt 1:
-  (no/parse-fail response: "\n")
+  matched=true reason=contains elapsed_ms=119
+
+--- [2b] surface snapshot (claude ready) ---
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [3] PROMPT the model (answer '42' is NOT in the prompt) ---
+
+--- [4] WAITFOR the model's answer '42' (acceptance) ---
+  matched=true reason=contains elapsed_ms=1534
+--- surface tail ---
+⏺ 42
+✻ Brewed for 1s
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [5] gettext --all (full scrollback) tail ---
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [6] screenshot the result ---
+screenshot: full screen (window unresolved) -> /Users/muthuishere/muthu/gitworkspace/ghostty-agent/twoway-notes/prove-twoway-result.png
+screenshot: /Users/muthuishere/muthu/gitworkspace/ghostty-agent/twoway-notes/prove-twoway-result.png (694750 bytes)
+
+PROVE-TWOWAY: PASS  (drove a claude session end-to-end; Enter submitted in the TUI)
+>>> RUN 1: GREEN
+
+############ RUN 2/3 ############
+=== prove-twoway.sh ===
+ghostty:  /Users/muthuishere/muthu/gitworkspace/ghostty-agent/zig-out/Ghostty.app/Contents/MacOS/ghostty
+claude:   /Users/muthuishere/.local/bin/claude
+workdir:  /tmp/prove-twoway.h7Svi1
+
+--- launch attempt 1 ---
+ghostty pid: 38613 -- probing for a live watcher...
+watcher is live (probe answered).
+
+--- [1] wait for the trust dialog (if any) ---
+>>> trust dialog present -> KEY:enter to accept
+
+--- [2] wait for claude boot (bypass permissions banner) ---
+  attempt 1:
+  matched=true reason=contains elapsed_ms=107
+
+--- [2b] surface snapshot (claude ready) ---
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [3] PROMPT the model (answer '42' is NOT in the prompt) ---
+
+--- [4] WAITFOR the model's answer '42' (acceptance) ---
+  matched=true reason=contains elapsed_ms=2021
+--- surface tail ---
+⏺ 42
+✻ Caramelizing… (2s · ↓ 1 tokens)
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [5] gettext --all (full scrollback) tail ---
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [6] screenshot the result ---
+screenshot: full screen (window unresolved) -> /Users/muthuishere/muthu/gitworkspace/ghostty-agent/twoway-notes/prove-twoway-result.png
+screenshot: /Users/muthuishere/muthu/gitworkspace/ghostty-agent/twoway-notes/prove-twoway-result.png (701283 bytes)
+
+PROVE-TWOWAY: PASS  (drove a claude session end-to-end; Enter submitted in the TUI)
+>>> RUN 2: GREEN
+
+############ RUN 3/3 ############
+=== prove-twoway.sh ===
+ghostty:  /Users/muthuishere/muthu/gitworkspace/ghostty-agent/zig-out/Ghostty.app/Contents/MacOS/ghostty
+claude:   /Users/muthuishere/.local/bin/claude
+workdir:  /tmp/prove-twoway.m6hiAp
+
+--- launch attempt 1 ---
+ghostty pid: 38766 -- probing for a live watcher...
+watcher is live (probe answered).
+
+--- [1] wait for the trust dialog (if any) ---
+>>> trust dialog present -> KEY:enter to accept
+
+--- [2] wait for claude boot (bypass permissions banner) ---
+  attempt 1:
+  matched=true reason=contains elapsed_ms=110
+
+--- [2b] surface snapshot (claude ready) ---
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [3] PROMPT the model (answer '42' is NOT in the prompt) ---
+
+--- [4] WAITFOR the model's answer '42' (acceptance) ---
+  matched=true reason=contains elapsed_ms=1855
+--- surface tail ---
+⏺ 42
+✻ Worked for 1s
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [5] gettext --all (full scrollback) tail ---
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+--- [6] screenshot the result ---
+screenshot: full screen (window unresolved) -> /Users/muthuishere/muthu/gitworkspace/ghostty-agent/twoway-notes/prove-twoway-result.png
+screenshot: /Users/muthuishere/muthu/gitworkspace/ghostty-agent/twoway-notes/prove-twoway-result.png (701628 bytes)
+
+PROVE-TWOWAY: PASS  (drove a claude session end-to-end; Enter submitted in the TUI)
+>>> RUN 3: GREEN
+
+############ RESULT: 3/3 green ############
+ACCEPTANCE: 3/3 GREEN
