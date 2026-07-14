@@ -257,8 +257,8 @@ prefer them over blind sleeps.
 
    `--command` replaces the login shell; `exec claude` makes Claude the
    foreground PTY leader so every keystroke reaches it. See the bundled
-   `scripts/prove-twoway.sh` (next to this skill) for the full, proven flow
-   (trust dialog → boot → prompt → waitfor "42").
+   the bundled `scripts/prove-twoway.js` (next to this skill) for the full,
+   proven flow (trust dialog → boot → prompt → waitfor "42").
 
 3. **Launch with `--window-save-state=never` or reads will hit the wrong
    surface (the #1 flake).** macOS window state-restoration reopens a *second*
@@ -284,26 +284,28 @@ immediately. `screenshot` is macOS-only and needs Screen Recording permission
 
 ## Bundled acceptance harness (ships with this skill)
 
-Everything needed to prove the two-way flow lives **inside this skill** — no
-separate repo scripts to hunt for. Both are self-locating (they resolve the repo
-root via `git rev-parse`), so run them from anywhere:
+Everything needed to prove the two-way flow lives **inside this skill** as pure
+Node — no shell wrappers, matching the rest of the ghostty-agent tooling
+(`sendkeys.js`). Both are self-locating (they resolve the repo root via
+`git rev-parse`), so run them from anywhere:
 
 ```sh
 SK=.claude/skills/ghostty-sendkeys/scripts
 
-bash "$SK/prove-twoway.sh"      # cold build (unless SKIP_BUILD=1), one full run:
+node "$SK/prove-twoway.js"      # cold build (unless SKIP_BUILD=1), one full run:
                                 #   launch+probe → trust → boot → prompt → waitfor "42"
-bash "$SK/prove-twoway-3x.sh"   # the acceptance bar: one cold `zig build`, then
-                                #   prove-twoway.sh must pass 3x CONSECUTIVELY,
+node "$SK/prove-twoway-3x.js"   # the acceptance bar: one cold `zig build`, then
+                                #   prove-twoway.js must pass 3x CONSECUTIVELY,
                                 #   each driving a real claude session to answer 42
 ```
 
-`prove-twoway.sh` already applies every reliability fix in this doc:
-build-first + stale-binary guard, clean-env `--command` launch,
-`--window-save-state=never` (single surface), tolerant JSON reads, and boot
-`waitfor` retry. It exits 0 on PASS. Run it from a **real GUI (Aqua) session** —
-it fails loudly if launched from a detached/headless context with no WindowServer.
-Use these as the template for any "drive claude reliably" automation.
+`prove-twoway.js` drives the `sendkeys.js` CLI (single protocol source of truth)
+and applies every reliability fix in this doc: build-first + stale-binary guard,
+clean-env `--command` launch, `--window-save-state=never` (single surface),
+tolerant JSON reads, and boot `waitfor` retry. It exits 0 on PASS. Run it from a
+**real GUI (Aqua) session** — it fails loudly if launched from a detached/headless
+context with no WindowServer. Use these as the template for any "drive claude
+reliably" automation.
 
 ## Step 5 — clean up
 
