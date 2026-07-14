@@ -256,9 +256,8 @@ prefer them over blind sleeps.
    ```
 
    `--command` replaces the login shell; `exec claude` makes Claude the
-   foreground PTY leader so every keystroke reaches it. See the bundled
-   the bundled `scripts/prove-twoway.js` (next to this skill) for the full,
-   proven flow (trust dialog → boot → prompt → waitfor "42").
+   foreground PTY leader so every keystroke reaches it. The bundled
+   `scripts/drive-claude.js` (below) already does all of this for you.
 
 3. **Launch with `--window-save-state=never` or reads will hit the wrong
    surface (the #1 flake).** macOS window state-restoration reopens a *second*
@@ -282,30 +281,69 @@ immediately. `screenshot` is macOS-only and needs Screen Recording permission
 (else it falls back to full-screen / may be blank) — for a terminal, `read` /
 `gettext --all` is the authoritative visual state.
 
-## Bundled acceptance harness (ships with this skill)
+## The reusable driver: `scripts/drive-claude.js`
 
-Everything needed to prove the two-way flow lives **inside this skill** as pure
-Node — no shell wrappers, matching the rest of the ghostty-agent tooling
-(`sendkeys.js`). Both are self-locating (they resolve the repo root via
-`git rev-parse`), so run them from anywhere:
+This is the skill's actual capability — **spawn (or reuse) a real `claude`
+session, ask it anything, and get the model's answer back so you can decide and
+act.** Pure Node (drives the `sendkeys.js` CLI), no deps, no shell wrappers. It
+bakes in every reliability fix above: clean-env `--command` launch, `prompt`
+text→Enter separation, `--window-save-state=never` single surface, and boot
+`waitfor` retry. Run it from a **real GUI (Aqua) session** (ghostty needs a
+WindowServer); it throws a clear diagnosis if launched headless.
 
-```sh
-SK=.claude/skills/ghostty-sendkeys/scripts
+**Start-if-not-exist.** A session is keyed by a stable name → a fixed spool dir
+under `~/.config/ghostty-agent/sessions/<name>/`. `ensure()` probes it: if a live
+claude is already there it **reuses** the window; otherwise it **starts** one.
+So repeated calls with the same `--name` talk to the same session.
 
-node "$SK/prove-twoway.js"      # cold build (unless SKIP_BUILD=1), one full run:
-                                #   launch+probe → trust → boot → prompt → waitfor "42"
-node "$SK/prove-twoway-3x.js"   # the acceptance bar: one cold `zig build`, then
-                                #   prove-twoway.js must pass 3x CONSECUTIVELY,
-                                #   each driving a real claude session to answer 42
+As a library:
+
+```js
+const { driveClaude, ClaudeSession } = require('./scripts/drive-claude.js');
+
+// one-shot: ask, get the answer, decide (session stays up for reuse)
+const { answer, matched, reused } = driveClaude({
+  name: 'ceo',
+  prompt: 'What is 21 plus 21? Reply with only the number.',
+  expect: '42',            // optional: wait for a known marker (fastest)
+});
+if (matched && answer.includes('42')) { /* ...act on it... */ }
+
+// multi-turn: hold the session open across turns
+const s = new ClaudeSession({ name: 'ceo' });
+s.ensure();                       // start if not running, else reuse
+const a1 = s.ask('summarise the repo');   // { answer, surface, matched }
+const a2 = s.ask('now propose 3 fixes');  // same window, no re-spawn
+s.kill();                         // tear down when done
 ```
 
-`prove-twoway.js` drives the `sendkeys.js` CLI (single protocol source of truth)
-and applies every reliability fix in this doc: build-first + stale-binary guard,
-clean-env `--command` launch, `--window-save-state=never` (single surface),
-tolerant JSON reads, and boot `waitfor` retry. It exits 0 on PASS. Run it from a
-**real GUI (Aqua) session** — it fails loudly if launched from a detached/headless
-context with no WindowServer. Use these as the template for any "drive claude
-reliably" automation.
+`ask(prompt, opts)` returns `{ answer, surface, matched }`. Pass `expect:"..."`
+to wait for a substring (server-side `waitfor`); omit it to wait until the
+surface changes then goes idle (`settleMs`). `answer` is the model's **latest**
+`⏺` reply (older turns in scrollback are ignored); `surface` is the full text.
+
+As a CLI:
+
+```sh
+D=.claude/skills/ghostty-sendkeys/scripts/drive-claude.js
+node "$D" --name ceo --expect 42 "What is 21 plus 21? Reply with only the number."
+node "$D" --name ceo --json "now what is 50 plus 50?"   # full JSON incl. surface
+# flags: --name N  --cwd DIR  --expect STR  --json  --close  --no-reuse
+```
+
+Exit 0 iff the answer was observed. First call **starts** (`reused=false`),
+later calls with the same `--name` **reuse** (`reused=true`).
+
+### Tests
+
+`scripts/drive-claude.test.js` — pure unit tests for answer extraction always
+run; the live end-to-end drive (asserts a real claude answers `42`) is gated
+behind `DRIVE_CLAUDE_E2E=1`:
+
+```sh
+node --test scripts/drive-claude.test.js                 # pure, headless-safe
+DRIVE_CLAUDE_E2E=1 node --test scripts/drive-claude.test.js   # + real drive (needs GUI + built fork)
+```
 
 ## Step 5 — clean up
 
