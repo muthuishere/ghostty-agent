@@ -45,6 +45,24 @@ test('extractAnswer falls back to tail when no bullet present', () => {
   assert.strictEqual(extractClaude(['booting...', '', 'ready'].join('\n')), 'booting...\nready');
 });
 
+test('capture: records asks and builds a portable recipe', () => {
+  const fs = require('node:fs');
+  const { AgentSession } = require('./agent-session.js');
+  const s = new AgentSession({ name: '__captest', agent: 'claude', args: ['--model', 'sonnet'] });
+  try {
+    s.captureStart();
+    s._record({ type: 'ask', prompt: 'q1', expect: '42', answer: '42', matched: true });
+    s._record({ type: 'ask', prompt: 'q2', expect: null, answer: 'hello world', matched: true });
+    const recipe = s.captureStop();
+    assert.strictEqual(recipe.agent, 'claude');
+    assert.deepStrictEqual(recipe.args, ['--model', 'sonnet']);
+    assert.strictEqual(recipe.steps.length, 2);
+    assert.strictEqual(recipe.steps[0].expect, '42');           // explicit expect kept
+    assert.strictEqual(recipe.steps[1].expect, 'hello world');  // derived from answer
+    assert.strictEqual(s.captureStatus().capturing, false);     // stopped
+  } finally { fs.rmSync(s.dir, { recursive: true, force: true }); }
+});
+
 test('claude e2e: drive a real session to answer 42', { skip: process.env.DRIVE_CLAUDE_E2E !== '1' }, () => {
   const { answer, matched } = driveAgent({
     name: 'e2e-claude', agent: 'claude', expect: '42', close: true,

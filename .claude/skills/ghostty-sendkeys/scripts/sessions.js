@@ -28,6 +28,8 @@ function parse(argv) {
     else if (a === '--cwd') o.cwd = argv[++i];
     else if (a === '--expect') o.expect = argv[++i];
     else if (a === '--bin') o.bin = argv[++i];
+    else if (a === '--out') o.out = argv[++i];
+    else if (a === '--recipe') o.recipe = argv[++i];
     else if (a === '--json') o.json = true;
     else if (a === '--no-reuse') o.reuse = false;
     else o._.push(a);
@@ -43,6 +45,10 @@ function usage(code) {
     '  sessions.js close <name>',
     '  sessions.js list  [--json]',
     '  sessions.js close-all',
+    '  sessions.js capture start  <name>',
+    '  sessions.js capture stop   <name> [--out FILE]   # emit a recipe',
+    '  sessions.js capture status <name>',
+    '  sessions.js replay <name> [--recipe FILE] [--json]',
   ].join('\n'));
   process.exit(code);
 }
@@ -77,6 +83,34 @@ try {
       if (!name) usage(2);
       m.close(name);
       console.log(`closed '${name}'`);
+      break;
+    }
+    case 'capture': {
+      const sub = o._[0];         // start | stop | status
+      const capName = o._[1];
+      if (!sub || !capName) usage(2);
+      if (sub === 'start') {
+        m.captureStart(capName, { agent: o.agent });
+        console.log(`capturing '${capName}' -- drive it (ask ...), then: capture stop ${capName}`);
+      } else if (sub === 'status') {
+        console.log(JSON.stringify(m.captureStatus(capName), null, 2));
+      } else if (sub === 'stop') {
+        const recipe = m.captureStop(capName);
+        if (o.out) { require('fs').writeFileSync(o.out, JSON.stringify(recipe, null, 2)); console.error(`recipe -> ${o.out}`); }
+        console.log(JSON.stringify(recipe, null, 2));
+      } else usage(2);
+      break;
+    }
+    case 'replay': {
+      if (!name) usage(2);
+      const recipe = o.recipe ? JSON.parse(require('fs').readFileSync(o.recipe, 'utf8')) : null;
+      const report = m.replay(name, recipe, { cwd: o.cwd });
+      if (o.json) console.log(JSON.stringify(report, null, 2));
+      else {
+        for (const r of report.results) console.log(`${r.ok ? '[ok]' : '[FAIL]'} ask: ${r.ask.slice(0, 50)} -> ${JSON.stringify(r.answer.slice(0, 40))}`);
+        console.log(report.pass ? 'REPLAY: PASS' : 'REPLAY: FAIL');
+      }
+      process.exit(report.pass ? 0 : 1);
       break;
     }
     case 'list': {

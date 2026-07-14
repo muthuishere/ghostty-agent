@@ -53,6 +53,15 @@ function normalizeArgs(args) {
 // The body is double-quote-capable there, so wrap and escape shell-active chars.
 function dq(s) { return '"' + String(s).replace(/(["\\$`])/g, '\\$1') + '"'; }
 
+// Derive a stable expect-token from a recorded answer (for capture -> recipe):
+// the first line, capped so it stays a substring of the answer.
+function deriveExpect(answer) {
+  const a = (answer || '').trim();
+  if (!a) return null;
+  const first = a.split('\n')[0].trim();
+  return first.slice(0, 40);
+}
+
 const ROOT = repoRoot();
 const SENDKEYS = path.join(ROOT, 'sendkeys.js');
 const GHOSTTY = path.join(ROOT, 'zig-out/Ghostty.app/Contents/MacOS/ghostty');
@@ -152,6 +161,9 @@ class AgentSession {
     this.log = path.join(this.dir, 'ghostty.log');
     this.pidfile = path.join(this.dir, 'ghostty.pid');
     this.metafile = path.join(this.dir, 'meta.json');
+    this.capflag = path.join(this.dir, 'capturing');       // present => recording
+    this.caplog = path.join(this.dir, 'capture.ndjson');   // recorded events
+    this.recipefile = path.join(this.dir, 'recipe.json');  // emitted recipe
     this.cwd = opts.cwd || path.join(this.dir, 'cwd');
     this.reuse = opts.reuse !== false;
     this.enterDelayMs = opts.enterDelayMs;
@@ -272,7 +284,57 @@ class AgentSession {
     const surface = this._waitIdle(timeoutMs, settleMs, before);
     const answer = this.extractAnswer(surface);
     const matched = opts.expect ? answer.includes(opts.expect) : answer.length > 0;
+    this._record({ type: 'ask', prompt, expect: opts.expect || null, answer, matched });
     return { answer, surface, matched };
+  }
+
+  // --- capture: record what an agent does, then emit a replayable recipe. ---
+  _record(ev) {
+    if (!fs.existsSync(this.capflag)) return;
+    try { fs.appendFileSync(this.caplog, JSON.stringify({ t: Date.now(), ...ev }) + '\n'); } catch (_) {}
+  }
+  captureStart() {
+    this._mkdirs();
+    try { fs.unlinkSync(this.caplog); } catch (_) {}
+    fs.writeFileSync(this.capflag, String(Date.now()));
+    return { capturing: true };
+  }
+  captureStatus() {
+    const capturing = fs.existsSync(this.capflag);
+    let events = 0;
+    try { events = fs.readFileSync(this.caplog, 'utf8').split('\n').filter((l) => l.trim()).length; } catch (_) {}
+    return { capturing, events };
+  }
+  // Stop recording and synthesise a recipe from the captured asks. The recipe is
+  // portable: agent + extra args + an ordered list of { ask, expect } steps (a
+  // stable token derived from each recorded answer becomes the expect), plus the
+  // literal recorded answer for reference. Written to recipe.json.
+  captureStop() {
+    let lines = [];
+    try { lines = fs.readFileSync(this.caplog, 'utf8').split('\n').filter((l) => l.trim()); } catch (_) {}
+    try { fs.unlinkSync(this.capflag); } catch (_) {}
+    let meta = {};
+    try { meta = JSON.parse(fs.readFileSync(this.metafile, 'utf8')); } catch (_) {}
+    const steps = [];
+    for (const l of lines) {
+      let ev; try { ev = JSON.parse(l); } catch (_) { continue; }
+      if (ev.type !== 'ask') continue;
+      steps.push({ ask: ev.prompt, expect: ev.expect || deriveExpect(ev.answer), recorded: ev.answer });
+    }
+    const recipe = { agent: this.agentType, bin: meta.bin || this.bin, args: meta.args || this.args, steps };
+    fs.writeFileSync(this.recipefile, JSON.stringify(recipe, null, 2));
+    return recipe;
+  }
+  // Replay a recipe against THIS session (opening it if needed). Returns a report
+  // of per-step {ask, expect, answer, ok}. Does not close the session.
+  replay(recipe) {
+    this.open();
+    const results = [];
+    for (const step of (recipe.steps || [])) {
+      const { answer, matched } = this.ask(step.ask, { expect: step.expect });
+      results.push({ ask: step.ask, expect: step.expect, answer, ok: step.expect ? answer.includes(step.expect) : matched });
+    }
+    return { pass: results.every((r) => r.ok), results };
   }
 
   close() {
@@ -307,6 +369,19 @@ class SessionManager {
     return { ...s.ask(prompt, opts), reused: s._reused };
   }
   close(name) { new AgentSession({ name, reuse: true }).close(); }
+
+  // capture: any agent can `captureStart`, drive the session (asks are recorded),
+  // then `captureStop` to get a replayable recipe; `replay` runs it back.
+  captureStart(name, opts = {}) { return this.session(name, opts).captureStart(); }
+  captureStop(name, opts = {}) { return this.session(name, opts).captureStop(); }
+  captureStatus(name, opts = {}) { return this.session(name, opts).captureStatus(); }
+  replay(name, recipe, opts = {}) {
+    const s = this.session(name, opts);
+    if (!recipe) { recipe = JSON.parse(fs.readFileSync(s.recipefile, 'utf8')); }
+    // honor the recipe's agent + args if the session isn't already typed for it
+    const s2 = new AgentSession({ name, agent: recipe.agent, bin: recipe.bin, args: recipe.args, cwd: opts.cwd });
+    return s2.replay(recipe);
+  }
 
   // Every session dir that has a meta.json, with live/pid status.
   list() {
