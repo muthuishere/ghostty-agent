@@ -1,6 +1,6 @@
 ---
 name: ghostty-sendkeys
-description: Build this Ghostty fork (debug or release), launch an instance with the GHOSTTY_SENDKEYS_DIR automation-testing watcher enabled, and drive it two-way via the sendkeys.js CLI — inject keystrokes (type/key/prompt) AND read the surface back (read/gettext/waitfor) over a request→response spool. Use for automation testing of this repo's fork (incl. reliably driving a real claude session), not upstream Ghostty.
+description: Build this Ghostty fork and drive real interactive terminal agents (claude, codex, or a shell) two-way through it — spawn or reuse a session, inject keystrokes (type/key/prompt), read the surface back (read/gettext/waitfor), ask a question and get the agent's answer back to decide on. Includes a browser-like session MANAGER (open/ask/close/list many named sessions like tabs), extra-arg passthrough for many claude/codex configs, and capture→recipe→replay. Built on the GHOSTTY_SENDKEYS_DIR watcher + sendkeys.js CLI. For automation testing of this repo's fork, not upstream Ghostty.
 ---
 
 # ghostty-sendkeys
@@ -281,75 +281,101 @@ immediately. `screenshot` is macOS-only and needs Screen Recording permission
 (else it falls back to full-screen / may be blank) — for a terminal, `read` /
 `gettext --all` is the authoritative visual state.
 
-## The reusable driver: `scripts/drive-claude.js`
+## The capability: a browser-like agent-session manager
 
-This is the skill's actual capability — **spawn (or reuse) a real `claude`
-session, ask it anything, and get the model's answer back so you can decide and
-act.** Pure Node (drives the `sendkeys.js` CLI), no deps, no shell wrappers. It
-bakes in every reliability fix above: clean-env `--command` launch, `prompt`
-text→Enter separation, `--window-save-state=never` single surface, and boot
-`waitfor` retry. Run it from a **real GUI (Aqua) session** (ghostty needs a
-WindowServer); it throws a clear diagnosis if launched headless.
+This is what the skill is actually *for* — **drive real interactive terminal
+agents (claude, codex, or a plain shell) two-way: spawn or reuse a session, ask
+it anything, get the answer back, decide, and manage many at once like browser
+tabs.** Pure Node over the `sendkeys.js` CLI, no deps, no shell wrappers. Every
+reliability fix above is baked in (clean-env `--command`, `prompt` text→Enter
+separation, `--window-save-state=never` single surface, boot retry). Run from a
+**real GUI (Aqua) session** — it throws a clear diagnosis if launched headless.
 
-**Start-if-not-exist.** A session is keyed by a stable name → a fixed spool dir
-under `~/.config/ghostty-agent/sessions/<name>/`. `ensure()` probes it: if a live
-claude is already there it **reuses** the window; otherwise it **starts** one.
-So repeated calls with the same `--name` talk to the same session.
+Files (all in `scripts/`):
 
-As a library:
+| file | what |
+|---|---|
+| `agent-session.js` | the engine: generic `AgentSession` + agent descriptors (`claude`/`codex`/`shell`) + `SessionManager` + capture/replay |
+| `drive-claude.js` / `drive-codex.js` | thin per-agent wrappers (library + CLI) |
+| `sessions.js` | the manager CLI (open/ask/close/list, capture, replay) |
+| `agent-session.test.js` | pure tests always run; live drives gated behind `DRIVE_CLAUDE_E2E=1` / `DRIVE_CODEX_E2E=1` |
+
+**Start-if-not-exist.** Each session is one ghostty *window* keyed by name →
+`~/.config/ghostty-agent/sessions/<name>/` (its own spool; one surface per window,
+no state-restoration race). `open()` probes it: live → **reuse**, else **start**.
+The agent type persists in `meta.json`, so `ask <name>` targets the right agent
+without repeating `--agent`.
+
+Library:
 
 ```js
-const { driveClaude, ClaudeSession } = require('./scripts/drive-claude.js');
+const { SessionManager, driveAgent } = require('./scripts/agent-session.js');
+const m = new SessionManager();
 
-// one-shot: ask, get the answer, decide (session stays up for reuse)
-const { answer, matched, reused } = driveClaude({
-  name: 'ceo',
-  prompt: 'What is 21 plus 21? Reply with only the number.',
-  expect: '42',            // optional: wait for a known marker (fastest)
-});
-if (matched && answer.includes('42')) { /* ...act on it... */ }
+m.open('ceo', { agent: 'claude' });                       // start if not running
+const { answer } = m.ask('ceo', 'What is 21+21?', { expect: '42' });
+if (answer.includes('42')) { /* decide/act */ }
 
-// multi-turn: hold the session open across turns
-const s = new ClaudeSession({ name: 'ceo' });
-s.ensure();                       // start if not running, else reuse
-const a1 = s.ask('summarise the repo');   // { answer, surface, matched }
-const a2 = s.ask('now propose 3 fixes');  // same window, no re-spawn
-s.kill();                         // tear down when done
+m.open('rev', { agent: 'codex' });                        // a second "tab"
+m.list();          // [{name:'ceo',agent:'claude',live:true,pid}, {name:'rev',...}]
+m.close('ceo');    // or m.closeAll()
 ```
 
-`ask(prompt, opts)` returns `{ answer, surface, matched }`. Pass `expect:"..."`
-to wait for a substring (server-side `waitfor`); omit it to wait until the
-surface changes then goes idle (`settleMs`). `answer` is the model's **latest**
-`⏺` reply (older turns in scrollback are ignored); `surface` is the full text.
+`ask()` returns `{ answer, surface, matched }`. It waits for the agent to go
+**idle** (both claude and codex show `esc to interrupt` while streaming), then
+returns the **latest** reply (claude `⏺` / codex `•`; scrollback ignored).
+`expect` is asserted against that extracted answer. Per-agent wrappers
+(`driveClaude` / `driveCodex`) give the same one-shot/multi-turn API.
 
-As a CLI:
+CLI:
 
 ```sh
-D=.claude/skills/ghostty-sendkeys/scripts/drive-claude.js
-node "$D" --name ceo --expect 42 "What is 21 plus 21? Reply with only the number."
-node "$D" --name ceo --json "now what is 50 plus 50?"   # full JSON incl. surface
-# flags: --name N  --cwd DIR  --expect STR  --json  --close  --no-reuse
+S=.claude/skills/ghostty-sendkeys/scripts/sessions.js
+node "$S" open  ceo --agent claude          # start a tab
+node "$S" open  rev --agent codex
+node "$S" list                              # ● ceo claude live / ● rev codex live
+node "$S" ask   ceo --expect 42 "What is 21 plus 21? Reply with only the number."
+node "$S" ask   rev "now what is 50+50?"    # agent resolved from meta; auto-opens
+node "$S" close ceo          # or: close-all
 ```
 
-Exit 0 iff the answer was observed. First call **starts** (`reused=false`),
-later calls with the same `--name` **reuse** (`reused=true`).
+**Extra agent params (you run many claude/codex configs).** Anything after `--`
+is appended to the agent command, on top of the required safety flags; `--bin`
+overrides the binary:
+
+```sh
+node "$S" open opus --agent claude -- --model opus --mcp-config /x.json
+node .../drive-codex.js --name gpt "hi" -- --model gpt-5.5 -c foo.bar=1
+```
+
+### Capture → recipe → replay
+
+Any agent can record a flow and turn it into a reusable recipe:
+
+```sh
+node "$S" capture start rec            # begin recording
+node "$S" ask rec --expect 42 "What is 21 plus 21? Reply with only the number."
+node "$S" ask rec --expect 7  "What is 10 minus 3? Reply with only the number."
+node "$S" capture stop rec --out recipe.json   # emit portable recipe (agent+args+steps)
+node "$S" replay rec --recipe recipe.json      # re-run on a fresh session -> PASS/FAIL
+```
+
+`recipe.json` = `{ agent, bin, args, steps:[{ask, expect, recorded}] }` (each
+`ask` is recorded; `expect` derives from the recorded answer when not given).
+`replay` opens the session per the recipe and re-runs every step.
 
 ### Tests
 
-`scripts/drive-claude.test.js` — pure unit tests for answer extraction always
-run; the live end-to-end drive (asserts a real claude answers `42`) is gated
-behind `DRIVE_CLAUDE_E2E=1`:
-
 ```sh
-node --test scripts/drive-claude.test.js                 # pure, headless-safe
-DRIVE_CLAUDE_E2E=1 node --test scripts/drive-claude.test.js   # + real drive (needs GUI + built fork)
+node --test scripts/agent-session.test.js                       # pure, headless-safe
+DRIVE_CLAUDE_E2E=1 DRIVE_CODEX_E2E=1 node --test scripts/agent-session.test.js   # + real drives
 ```
 
 ## Step 5 — clean up
 
-```sh
-kill "$(cat /tmp/ghostty-spike.pid)"
-```
+Sessions are ghostty windows; close them with the manager (`node sessions.js
+close <name>` / `close-all`) rather than a stray `kill`, so the pidfile/meta
+under `~/.config/ghostty-agent/sessions/<name>/` stay consistent.
 
 Don't leave spike instances running after you're done testing — they
 're indistinguishable from a real user's Ghostty window in `ps aux`
