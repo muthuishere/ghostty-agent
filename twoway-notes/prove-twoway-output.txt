@@ -1,0 +1,48 @@
+=== prove-twoway.sh ===
+ghostty:  /Users/muthuishere/muthu/gitworkspace/ghostty-agent/ghostty-auto.app/Contents/MacOS/ghostty
+claude:   /Users/muthuishere/.local/bin/claude
+workdir:  /tmp/prove-twoway.8gC16A
+
+ghostty pid: 46162
+
+--- [1] wait for the trust dialog (if any) ---
+>>> trust dialog present -> KEY:enter to accept
+
+--- [2] wait for claude boot (bypass permissions banner) ---
+boot matched=true reason=contains elapsed_ms=486
+
+--- [2b] surface snapshot (claude ready) ---
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+
+--- [3] PROMPT the model (answer '42' is NOT in the prompt) ---
+
+--- [4] WAITFOR the model's answer '42' (acceptance) ---
+waitfor matched=true reason=contains elapsed_ms=1841
+--- surface tail ---
+⏺ 42
+✻ Processing… 
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+
+--- [5] gettext --all (full scrollback) tail ---
+                                                                                                                                                          ◐ medium · /effort
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 4.8  cwd  ctx 0K 0% 🟢
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+
+--- [6] screenshot the result ---
+screenshot: full screen (window unresolved) -> /Users/muthuishere/muthu/gitworkspace/ghostty-agent/twoway-notes/prove-twoway-result.png
+screenshot: /Users/muthuishere/muthu/gitworkspace/ghostty-agent/twoway-notes/prove-twoway-result.png (561290 bytes)
+
+PROVE-TWOWAY: PASS  (drove a claude session end-to-end; Enter submitted in the TUI)

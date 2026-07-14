@@ -1,6 +1,6 @@
 ---
 name: ghostty-sendkeys
-description: Build this Ghostty fork (debug or release), launch an instance with the GHOSTTY_SENDKEYS_DIR automation-testing watcher enabled, and inject synthetic keystrokes into it via a spool directory or the sendkeys.js CLI. Use for automation testing of this repo's fork, not upstream Ghostty.
+description: Build this Ghostty fork (debug or release), launch an instance with the GHOSTTY_SENDKEYS_DIR automation-testing watcher enabled, and drive it two-way via the sendkeys.js CLI — inject keystrokes (type/key/prompt) AND read the surface back (read/gettext/waitfor) over a request→response spool. Use for automation testing of this repo's fork (incl. reliably driving a real claude session), not upstream Ghostty.
 ---
 
 # ghostty-sendkeys
@@ -214,6 +214,56 @@ need a visual check:
   screen.
 - Otherwise, rely on log output (`GHOSTTY_LOG=info`) and the
   spool-file-disappears check above; that's usually sufficient.
+
+## Two-way (v2): read / waitfor / prompt / gettext / screenshot
+
+The watcher is now **bidirectional**. Any request line may carry an `@<id>`
+prefix; the watcher writes an atomic `<id>.response.json` into a responses dir
+(`GHOSTTY_SENDKEYS_RESP_DIR`, default `<spool>/responses`). The CLI hides the id
++ polling for you:
+
+```sh
+node sendkeys.js --dir "$SPOOL" read [--lines N | --all]   # snapshot surface text
+node sendkeys.js --dir "$SPOOL" gettext --all              # full scrollback (alias of read --all)
+node sendkeys.js --dir "$SPOOL" waitfor --contains "READY" --timeout-ms 60000 [--settle-ms N]
+node sendkeys.js --dir "$SPOOL" prompt "echo hi"           # type + Enter (TUI-safe submit)
+node sendkeys.js --dir "$SPOOL" type|key|send <...> --wait # v1 verb + delivery ack
+node sendkeys.js --dir "$SPOOL" screenshot out.png --pid <ghostty pid>
+```
+
+`waitfor` returns `{matched, reason:"contains"|"settled"|"timeout", elapsed_ms,
+surface}`. It blocks the watcher (sequential by design) — drive request→response
+one at a time. `read`/`waitfor`/`prompt` are the eyes-and-hands an agent needs;
+prefer them over blind sleeps.
+
+### Driving a `claude` session — the two things that will bite you
+
+1. **Enter won't submit in the Claude TUI unless the text and Enter are
+   separated.** A raw fast `TEXT:` burst + `\r` is treated as a *paste* by
+   Claude Code (Ink), so the Enter becomes a literal newline and the line just
+   sits in the box. **Use `prompt`** (not `type` then `key enter`): it injects
+   the text, waits `GHOSTTY_SENDKEYS_ENTER_DELAY_MS` (default 250ms), then Enter
+   — so the TUI submits. A one-off `send "KEY:enter"` (e.g. to accept a trust
+   dialog) is fine; the bug is only text-immediately-followed-by-Enter.
+
+2. **Launch Claude in a CLEAN environment, not the login shell.** The operator's
+   shell auto-attaches tmux (+direnv); that `ghostty→zsh→tmux→claude` stack
+   misroutes injected input to the shell and flaps the screen. Run Claude as
+   ghostty's own PTY process:
+
+   ```sh
+   "$GH" --command="/bin/bash --noprofile --norc -c 'cd <empty-dir> && exec claude --dangerously-skip-permissions'"
+   ```
+
+   `--command` replaces the login shell; `exec claude` makes Claude the
+   foreground PTY leader so every keystroke reaches it. See
+   `scripts/prove-twoway.sh` for the full, proven flow (trust dialog → boot →
+   prompt → waitfor "42").
+
+Note: bare `type`/`key` only **stage** (v1); `send` and all v2 verbs publish
+immediately. `screenshot` is macOS-only and needs Screen Recording permission
+(else it falls back to full-screen / may be blank) — for a terminal, `read` /
+`gettext --all` is the authoritative visual state.
 
 ## Step 5 — clean up
 

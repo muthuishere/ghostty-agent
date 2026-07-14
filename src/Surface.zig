@@ -134,6 +134,15 @@ io_thr: std.Thread,
 /// sendkeysWatcherStart.
 sendkeys_thread: ?std.Thread = null,
 sendkeys_stop: std.atomic.Value(bool) = .init(false),
+/// [Spike/automation-testing] Two-way (v2) response directory. Owned;
+/// resolved in sendkeysWatcherStart, freed in sendkeysWatcherMain. See
+/// SENDKEYS_SPEC.md "Two-way protocol (v2)".
+sendkeys_resp_dir: ?[]const u8 = null,
+/// [v2] Delay (ms) between injecting PROMPT text and the trailing Enter.
+/// Needed so a TUI (e.g. Claude Code) sees the Enter as a distinct keypress
+/// rather than swallowing it into the fast text burst as a paste. Override
+/// with GHOSTTY_SENDKEYS_ENTER_DELAY_MS. See SENDKEYS_SPEC.md "The Enter bug".
+sendkeys_enter_delay_ms: u64 = 250,
 
 /// Terminal inspector
 inspector: ?*inspectorpkg.Inspector = null,
@@ -931,19 +940,49 @@ fn sendkeysWatcherStart(self: *Surface) !void {
         dir.close();
     }
 
+    // [v2] Resolve the two-way response directory: GHOSTTY_SENDKEYS_RESP_DIR
+    // if set, else "<spool>/responses". Created lazily on first write, so we
+    // don't require it to exist here.
+    self.sendkeys_resp_dir = resp: {
+        if (try internal_os.getenv(self.alloc, "GHOSTTY_SENDKEYS_RESP_DIR")) |rv| {
+            defer rv.deinit(self.alloc);
+            break :resp try self.alloc.dupe(u8, rv.value);
+        }
+        break :resp try std.fs.path.join(self.alloc, &.{ dir_path, "responses" });
+    };
+    errdefer if (self.sendkeys_resp_dir) |r| {
+        self.alloc.free(r);
+        self.sendkeys_resp_dir = null;
+    };
+
+    // [v2] Optional override of the PROMPT text->Enter separation delay.
+    if (try internal_os.getenv(self.alloc, "GHOSTTY_SENDKEYS_ENTER_DELAY_MS")) |dv| {
+        defer dv.deinit(self.alloc);
+        if (std.fmt.parseInt(u64, dv.value, 10)) |ms| {
+            self.sendkeys_enter_delay_ms = ms;
+        } else |_| {}
+    }
+
     self.sendkeys_thread = try std.Thread.spawn(
         .{},
         sendkeysWatcherMain,
         .{ self, dir_path },
     );
     self.sendkeys_thread.?.setName("sendkeys") catch {};
-    log.info("sendkeys watcher started dir={s}", .{dir_path});
+    log.info("sendkeys watcher started dir={s} resp_dir={s}", .{
+        dir_path,
+        self.sendkeys_resp_dir orelse "",
+    });
 }
 
 /// Entrypoint for the background watcher thread. Owns `dir_path` (frees
 /// it on exit). Polls the directory until sendkeys_stop is set.
 fn sendkeysWatcherMain(self: *Surface, dir_path: []const u8) void {
     defer self.alloc.free(dir_path);
+    defer if (self.sendkeys_resp_dir) |r| {
+        self.alloc.free(r);
+        self.sendkeys_resp_dir = null;
+    };
     defer log.info("sendkeys watcher stopped", .{});
 
     while (!self.sendkeys_stop.load(.seq_cst)) {
@@ -1034,14 +1073,63 @@ fn sendkeysWatcherProcessFile(
 }
 
 /// Dispatches a single complete line from the sendkeys file.
+///
+/// [v2] A line may carry an optional `@<id> ` prefix (id then one space);
+/// when present, a response file `<resp_dir>/<id>.response.json` is written
+/// after the line is handled. See SENDKEYS_SPEC.md "Two-way protocol (v2)".
 fn sendkeysProcessLine(self: *Surface, line: []const u8) !void {
-    if (std.mem.startsWith(u8, line, "KEY:")) {
-        try self.sendkeysInjectTrigger(line["KEY:".len..]);
-    } else if (std.mem.startsWith(u8, line, "TEXT:")) {
-        try self.sendkeysInjectText(line["TEXT:".len..]);
-    } else {
-        try self.sendkeysInjectText(line);
+    var rest = line;
+    var id: ?[]const u8 = null;
+
+    // Parse the optional "@<id> " prefix. id charset is [A-Za-z0-9._-].
+    if (rest.len > 1 and rest[0] == '@') {
+        if (std.mem.indexOfScalar(u8, rest, ' ')) |sp| {
+            const candidate = rest[1..sp];
+            if (candidate.len > 0 and sendkeysValidId(candidate)) {
+                id = candidate;
+                rest = rest[sp + 1 ..];
+            }
+        }
     }
+
+    if (std.mem.startsWith(u8, rest, "KEY:")) {
+        try self.sendkeysInjectTrigger(rest["KEY:".len..]);
+        try self.sendkeysAck(id, "key");
+    } else if (std.mem.startsWith(u8, rest, "TEXT:")) {
+        try self.sendkeysInjectText(rest["TEXT:".len..]);
+        try self.sendkeysAck(id, "text");
+    } else if (std.mem.startsWith(u8, rest, "PROMPT:")) {
+        try self.sendkeysInjectText(rest["PROMPT:".len..]);
+        // [v2] THE ENTER BUG: a TUI like Claude Code detects the fast text
+        // burst as a paste and, if the trailing CR arrives in that same
+        // burst, treats it as a literal newline inside the paste instead of
+        // a submit -- so the line just sits in the input box. (A plain shell
+        // has no such paste heuristic, which is why v1 KEY:enter "worked".)
+        // Fix: let the text burst commit, THEN inject Enter as its own,
+        // distinctly-later keypress so the TUI submits it. See SENDKEYS_SPEC.md.
+        if (self.sendkeys_enter_delay_ms > 0) {
+            std.Thread.sleep(self.sendkeys_enter_delay_ms * std.time.ns_per_ms);
+        }
+        self.sendkeysInject(.press, .enter, .{}, "\r");
+        self.sendkeysInject(.release, .enter, .{}, "");
+        try self.sendkeysAck(id, "prompt");
+    } else if (std.mem.eql(u8, rest, "READ") or std.mem.startsWith(u8, rest, "READ:")) {
+        try self.sendkeysHandleRead(id, rest);
+    } else if (std.mem.startsWith(u8, rest, "WAITFOR:")) {
+        try self.sendkeysHandleWaitfor(id, rest["WAITFOR:".len..]);
+    } else {
+        try self.sendkeysInjectText(rest);
+        try self.sendkeysAck(id, "text");
+    }
+}
+
+/// True if every byte of `s` is in the id charset [A-Za-z0-9._-].
+fn sendkeysValidId(s: []const u8) bool {
+    for (s) |c| switch (c) {
+        'A'...'Z', 'a'...'z', '0'...'9', '.', '_', '-' => {},
+        else => return false,
+    };
+    return true;
 }
 
 /// Parses a config-style trigger (e.g. "ctrl+c", "cmd+shift+t", "enter")
@@ -1114,6 +1202,232 @@ fn sendkeysInject(
         @as([]const u8, utf8),
     ) catch return;
     _ = self.surfaceMailbox().push(.{ .inject_key = msg }, .{ .forever = {} });
+}
+
+// ============================================================================
+// [v2] Two-way protocol: responses, surface reads, waitfor.
+// See SENDKEYS_SPEC.md "Two-way protocol (v2)".
+
+/// Writes a delivery-ack response for an injection verb, iff `id` is set.
+fn sendkeysAck(self: *Surface, id: ?[]const u8, verb: []const u8) !void {
+    const rid = id orelse return;
+    var aw: std.Io.Writer.Allocating = .init(self.alloc);
+    defer aw.deinit();
+    var jws: std.json.Stringify = .{ .writer = &aw.writer };
+    try jws.beginObject();
+    try jws.objectField("id");
+    try jws.write(rid);
+    try jws.objectField("ok");
+    try jws.write(true);
+    try jws.objectField("verb");
+    try jws.write(verb);
+    try jws.objectField("delivered");
+    try jws.write(true);
+    try jws.endObject();
+    try self.sendkeysWriteResponse(rid, aw.written());
+}
+
+/// Snapshots the surface as plain UTF-8 while holding the render mutex
+/// (same lock the IO/render threads take), trims trailing blank lines, and
+/// returns an owned buffer. `full` = true dumps the entire scrollback +
+/// viewport (`.screen`); false dumps just the visible viewport. Safe to
+/// call from the watcher thread -- it never mutates the terminal, only
+/// reads it under the lock.
+fn sendkeysSnapshot(self: *Surface, alloc: Allocator, full: bool) ![]u8 {
+    const raw = raw: {
+        self.renderer_state.mutex.lock();
+        defer self.renderer_state.mutex.unlock();
+        const screen = self.renderer_state.terminal.screens.active;
+        break :raw try screen.dumpStringAlloc(
+            alloc,
+            if (full) .{ .screen = .{} } else .{ .viewport = .{} },
+        );
+    };
+    defer alloc.free(raw);
+    const trimmed = std.mem.trimRight(u8, raw, " \t\r\n");
+    return try alloc.dupe(u8, trimmed);
+}
+
+/// Returns a subslice of `text` containing only its last `n` lines. A null
+/// `n` (no limit) returns the whole thing.
+fn sendkeysLastLines(text: []const u8, n: ?usize) []const u8 {
+    const count = n orelse return text;
+    if (count == 0) return text[text.len..];
+    var idx: usize = text.len;
+    var seen: usize = 0;
+    while (idx > 0) {
+        idx -= 1;
+        if (text[idx] == '\n') {
+            seen += 1;
+            if (seen == count) return text[idx + 1 ..];
+        }
+    }
+    return text;
+}
+
+/// Counts the number of lines in `text` (0 for empty, else newlines + 1).
+fn sendkeysCountLines(text: []const u8) usize {
+    if (text.len == 0) return 0;
+    return std.mem.count(u8, text, "\n") + 1;
+}
+
+/// Handles `READ` / `READ:<lines>` -- snapshots the surface and writes a
+/// read response. Skipped (with a warning) if no `id` was given.
+fn sendkeysHandleRead(self: *Surface, id: ?[]const u8, rest: []const u8) !void {
+    const rid = id orelse {
+        log.warn("sendkeys READ without @id -- no response written", .{});
+        return;
+    };
+
+    var lines: ?usize = null;
+    var all = false;
+    if (std.mem.startsWith(u8, rest, "READ:")) {
+        const arg = rest["READ:".len..];
+        if (std.mem.eql(u8, arg, "all")) {
+            all = true;
+        } else {
+            lines = std.fmt.parseInt(usize, arg, 10) catch null;
+        }
+    }
+
+    const snap = try self.sendkeysSnapshot(self.alloc, all);
+    defer self.alloc.free(snap);
+    const view = sendkeysLastLines(snap, lines);
+
+    var aw: std.Io.Writer.Allocating = .init(self.alloc);
+    defer aw.deinit();
+    var jws: std.json.Stringify = .{ .writer = &aw.writer };
+    try jws.beginObject();
+    try jws.objectField("id");
+    try jws.write(rid);
+    try jws.objectField("ok");
+    try jws.write(true);
+    try jws.objectField("verb");
+    try jws.write("read");
+    try jws.objectField("lines");
+    try jws.write(sendkeysCountLines(view));
+    try jws.objectField("surface");
+    try jws.write(view);
+    try jws.endObject();
+    try self.sendkeysWriteResponse(rid, aw.written());
+}
+
+/// Handles `WAITFOR:<timeout_ms>|<settle_ms>|<needle>` -- polls the surface
+/// every 50ms until the needle appears, output goes quiet for settle_ms, or
+/// timeout_ms elapses. Blocks the watcher thread (sequential by design).
+fn sendkeysHandleWaitfor(self: *Surface, id: ?[]const u8, payload: []const u8) !void {
+    const rid = id orelse {
+        log.warn("sendkeys WAITFOR without @id -- no response written", .{});
+        return;
+    };
+
+    var it = std.mem.splitScalar(u8, payload, '|');
+    const t_str = it.next() orelse "";
+    const s_str = it.next() orelse "";
+    const needle = it.rest();
+
+    const timeout_ms: i64 = std.fmt.parseInt(i64, t_str, 10) catch 30000;
+    const settle_ms: i64 = std.fmt.parseInt(i64, s_str, 10) catch 0;
+
+    const start = std.time.milliTimestamp();
+    var changed_at = start;
+    var matched = false;
+    var reason: []const u8 = "timeout";
+    var final: ?[]u8 = null;
+    defer if (final) |f| self.alloc.free(f);
+
+    while (true) {
+        const snap = try self.sendkeysSnapshot(self.alloc, false);
+        const now = std.time.milliTimestamp();
+        const has = needle.len > 0 and std.mem.indexOf(u8, snap, needle) != null;
+
+        // Settle detection: track when the surface last differed. If it has
+        // been byte-identical for settle_ms, output is "quiet".
+        var settled = false;
+        if (settle_ms > 0) {
+            if (final) |f| {
+                if (!std.mem.eql(u8, f, snap)) changed_at = now;
+            } else changed_at = now;
+            if (now - changed_at >= settle_ms) settled = true;
+        }
+
+        if (final) |f| self.alloc.free(f);
+        final = snap;
+
+        if (has) {
+            matched = true;
+            reason = "contains";
+            break;
+        }
+        if (settled) {
+            reason = "settled";
+            break;
+        }
+        if (now - start >= timeout_ms) {
+            reason = "timeout";
+            break;
+        }
+        if (self.sendkeys_stop.load(.seq_cst)) {
+            reason = "timeout";
+            break;
+        }
+        std.Thread.sleep(50 * std.time.ns_per_ms);
+    }
+
+    const elapsed = std.time.milliTimestamp() - start;
+    const surface = final orelse "";
+
+    var aw: std.Io.Writer.Allocating = .init(self.alloc);
+    defer aw.deinit();
+    var jws: std.json.Stringify = .{ .writer = &aw.writer };
+    try jws.beginObject();
+    try jws.objectField("id");
+    try jws.write(rid);
+    try jws.objectField("ok");
+    try jws.write(true);
+    try jws.objectField("verb");
+    try jws.write("waitfor");
+    try jws.objectField("matched");
+    try jws.write(matched);
+    try jws.objectField("reason");
+    try jws.write(reason);
+    try jws.objectField("elapsed_ms");
+    try jws.write(elapsed);
+    try jws.objectField("surface");
+    try jws.write(surface);
+    try jws.endObject();
+    try self.sendkeysWriteResponse(rid, aw.written());
+}
+
+/// Publishes a response file atomically: write `.<id>.tmp` then rename to
+/// `<id>.response.json` in the responses dir (created lazily). Never
+/// returns fatally -- a failed response must not kill the watcher.
+fn sendkeysWriteResponse(self: *Surface, id: []const u8, bytes: []const u8) !void {
+    const resp_dir = self.sendkeys_resp_dir orelse return;
+
+    std.fs.cwd().makePath(resp_dir) catch |err| {
+        log.warn("sendkeys failed to create resp dir={s} err={}", .{ resp_dir, err });
+        return;
+    };
+    var dir = std.fs.cwd().openDir(resp_dir, .{}) catch |err| {
+        log.warn("sendkeys failed to open resp dir={s} err={}", .{ resp_dir, err });
+        return;
+    };
+    defer dir.close();
+
+    const tmp_name = try std.fmt.allocPrint(self.alloc, ".{s}.tmp", .{id});
+    defer self.alloc.free(tmp_name);
+    const final_name = try std.fmt.allocPrint(self.alloc, "{s}.response.json", .{id});
+    defer self.alloc.free(final_name);
+
+    dir.writeFile(.{ .sub_path = tmp_name, .data = bytes }) catch |err| {
+        log.warn("sendkeys failed to write resp tmp={s} err={}", .{ tmp_name, err });
+        return;
+    };
+    dir.rename(tmp_name, final_name) catch |err| {
+        log.warn("sendkeys failed to publish resp={s} err={}", .{ final_name, err });
+        return;
+    };
 }
 
 /// Returns a mailbox that can be used to send messages to this surface.
