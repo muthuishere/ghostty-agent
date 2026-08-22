@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "boundaries": [
+    {
+      "id": "zig-env-posix-getenv",
+      "transport": "env.process",
+      "direction": "consumes",
+      "when": {
+        "ext": [
+          ".zig"
+        ]
+      },
+      "tier": "INFERRED",
+      "verified": {
+        "at": "2026-08-22",
+        "ground_truth": {
+          "tool": "ctx-optimize search",
+          "cmd": "search 'std\\.posix\\.getenv\\(' --ext .zig --count",
+          "re": "std\\.posix\\.getenv\\(",
+          "ext": [
+            ".zig"
+          ],
+          "corpora": [
+            "local"
+          ]
+        },
+        "expected": 11,
+        "matched": 11,
+        "sampled": 11,
+        "confirmed": 11,
+        "known_misses": []
+      },
+      "ast": [
+        {
+          "shape": "call",
+          "name": "getenv",
+          "receiver": "posix",
+          "arg": 0
+        }
+      ]
+    },
+    {
+      "id": "zig-env-getenvvarowned",
+      "transport": "env.process",
+      "direction": "consumes",
+      "when": {
+        "ext": [
+          ".zig"
+        ]
+      },
+      "tier": "INFERRED",
+      "verified": {
+        "at": "2026-08-22",
+        "ground_truth": {
+          "tool": "ctx-optimize search",
+          "cmd": "search 'std\\.process\\.getEnvVarOwned\\(' --ext .zig --count",
+          "re": "std\\.process\\.getEnvVarOwned\\(",
+          "ext": [
+            ".zig"
+          ],
+          "corpora": [
+            "local"
+          ]
+        },
+        "expected": 13,
+        "matched": 13,
+        "sampled": 13,
+        "confirmed": 13,
+        "known_misses": []
+      },
+      "ast": [
+        {
+          "shape": "call",
+          "name": "getEnvVarOwned",
+          "receiver": "process",
+          "arg": 1
+        }
+      ]
+    },
+    {
+      "id": "ghostty-env-internal-os",
+      "transport": "env.process",
+      "direction": "consumes",
+      "when": {
+        "ext": [
+          ".zig"
+        ]
+      },
+      "tier": "INFERRED",
+      "verified": {
+        "at": "2026-08-22",
+        "ground_truth": {
+          "tool": "ctx-optimize search",
+          "cmd": "search 'internal_os\\.getenv\\(' --ext .zig --count",
+          "re": "internal_os\\.getenv\\(",
+          "ext": [
+            ".zig"
+          ],
+          "corpora": [
+            "local"
+          ]
+        },
+        "expected": 11,
+        "matched": 11,
+        "sampled": 11,
+        "confirmed": 11,
+        "known_misses": []
+      },
+      "ast": [
+        {
+          "shape": "call",
+          "name": "getenv",
+          "receiver": "internal_os",
+          "arg": 1
+        }
+      ]
+    },
+    {
+      "id": "zig-spawn-child-run",
+      "transport": "process.spawn",
+      "direction": "consumes",
+      "when": {
+        "ext": [
+          ".zig"
+        ]
+      },
+      "tier": "INFERRED",
+      "verified": {
+        "at": "2026-08-22",
+        "ground_truth": {
+          "tool": "ctx-optimize search",
+          "cmd": "search 'std\\.process\\.Child\\.run\\(' --ext .zig --count",
+          "re": "std\\.process\\.Child\\.run\\(",
+          "ext": [
+            ".zig"
+          ],
+          "corpora": [
+            "local"
+          ]
+        },
+        "expected": 2,
+        "matched": 2,
+        "sampled": 2,
+        "confirmed": 2,
+        "known_misses": []
+      },
+      "ast": [
+        {
+          "shape": "call",
+          "name": "run",
+          "receiver": "Child",
+          "arg": 0
+        }
+      ]
+    }
+  ]
+}

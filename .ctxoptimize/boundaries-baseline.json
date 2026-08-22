@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "note": "LOCAL recall floor for `ctx-optimize boundaries verify` (ADR 2026-08-13-boundary-authoring D3). Measured against THIS repo, not the corpora behind each rule's shipped verified block. Governed like the golden net: recall may move up freely; lowering a floor is a reviewed diff.",
+  "rules": {
+    "env-js": 1,
+    "ghostty-env-internal-os": 1,
+    "http-url-literal": 0,
+    "http-url-literal-unparsed": 1,
+    "zig-env-getenvvarowned": 1,
+    "zig-env-posix-getenv": 1,
+    "zig-spawn-child-run": 1
+  }
+}
